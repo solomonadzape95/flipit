@@ -7,7 +7,7 @@ export function getConfig() {
     chains: [baseSepolia],
     connectors: [
       baseAccount({
-        appName: "Sub Accounts Demo",
+        appName: "flipit",
         subAccounts: {
           creation: "on-connect",
           defaultAccount: "sub",

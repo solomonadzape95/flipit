@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export const dynamic = 'force-dynamic';
-
 export async function POST(request: Request) {
   const { playId, endTimeMs, username, clientFinalTimeMs } = await request.json().catch(() => ({}));
   if (typeof playId !== "string" || (typeof endTimeMs !== "number" && typeof clientFinalTimeMs !== "number")) {

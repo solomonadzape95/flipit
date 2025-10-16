@@ -37,10 +37,10 @@ export default function StorePanel(props: {
       {!props.isConnected && (
         <div className="border rounded-lg p-6 text-center">
           <div className="text-sm text-muted-foreground mb-3">
-            Connect your wallet to purchase power-ups
+            Sign in with Base to purchase power-ups
           </div>
           <Button onClick={props.onConnect}>
-            <Wallet className="h-4 w-4 mr-2" /> Connect Wallet
+            <Wallet className="h-4 w-4 mr-2" /> Sign in with Base
           </Button>
         </div>
       )}
@@ -58,7 +58,7 @@ export default function StorePanel(props: {
               onClick={() => buyItem(item.id as keyof typeof STORE_ITEMS)}
               title={
                 !props.isConnected
-                  ? "Connect your wallet"
+                  ? "Sign in with Base"
                   : isConfirming
                     ? "Confirming previous purchase..."
                     : undefined

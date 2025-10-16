@@ -5,6 +5,8 @@ import { baseSepolia } from "viem/chains";
 import { USDC, erc20Abi } from "@/lib/usdc";
 import { PAYOUT_POOL_PERCENT, PAYOUT_SPLITS, TREASURY_ADDRESS } from "@/lib/constants";
 
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
   try {
     // Compute UTC day range

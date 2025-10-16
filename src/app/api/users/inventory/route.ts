@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   const { userId, peekDelta, autoMatchDelta } = await request.json().catch(() => ({}));
   if (typeof userId !== "string") return NextResponse.json({ error: "userId required" }, { status: 400 });

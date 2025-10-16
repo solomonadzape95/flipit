@@ -10,23 +10,16 @@ import {
   useSendTransaction,
   useConnections,
 } from "wagmi";
-import Posts from "../components/posts";
-import ClickerPanel from "@/components/ClickerPanel";
-import GameTabs from "@/components/GameTabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import Board from "@/components/flip/Board";
+import Timer from "@/components/flip/Timer";
+import RightTabs from "@/components/flip/RightTabs";
+import { useFlipMatch } from "@/hooks/useFlipMatch";
+import { useStorePurchases } from "@/hooks/useStorePurchases";
+import { USDC, erc20Abi } from "@/lib/usdc";
+import { TREASURY_ADDRESS } from "@/lib/constants";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { parseUnits, isAddress, encodeFunctionData } from "viem";
 import { toast } from "sonner";
-import { USDC, erc20Abi } from "@/lib/usdc";
 import { useFaucet } from "@/hooks/useFaucet";
 import { useFaucetEligibility } from "@/hooks/useFaucetEligibility";
 import { useSpendPermission } from "@/hooks/useSpendPermission";
@@ -35,21 +28,6 @@ import { useGameState } from "@/hooks/useGameState";
 import StorePanel from "@/components/StorePanel";
 import { Coins } from "lucide-react";
 
-// Inline SVG icon to match the "gems" icon in the screenshot
-function GemIcon({ className = "w-6 h-6" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="24" height="24" viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ display: "inline", verticalAlign: "middle" }}
-    >
-      <circle cx="12" cy="12" r="10" stroke="#8464e9" strokeWidth="2.2" fill="#151D22"/>
-      <circle cx="12" cy="12" r="6" stroke="#8b5cf6" strokeWidth="2"/>
-    </svg>
-  );
-}
 
 function App() {
   const account = useAccount();
@@ -80,19 +58,123 @@ function App() {
 
   const faucetMutation = useFaucet();
   const { remainingBudgetUsd, isRequesting, requestBudget } = useSpendPermission();
-  const { state: game, actions, costs } = useGameState();
+  const flip = useFlipMatch();
+  const entryPurchase = useStorePurchases();
+  const [playId, setPlayId] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [isSubmittingScore, setIsSubmittingScore] = useState(false);
 
+  // Only ONE useSendTransaction instance for user-initiated txs used below
   const {
     sendTransaction,
     data: hash,
     isPending: isTransactionPending,
     reset: resetTransaction,
   } = useSendTransaction();
-
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({
       hash,
     });
+
+  // Dedicated for entry fee transaction
+  const {
+    sendTransaction: sendEntryTransaction,
+    data: entryHash,
+    isPending: isEntryPending,
+    reset: resetEntryTx,
+  } = useSendTransaction();
+  const {
+    isLoading: isEntryConfirming,
+    isSuccess: isEntryConfirmed,
+    isError: isEntryError,
+  } = useWaitForTransactionReceipt({ hash: entryHash });
+
+  useEffect(() => {
+    if (account.status === "connected" && account.address) {
+      fetch("/api/users/upsert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: account.address }),
+      }).catch(() => {});
+
+      // Pull inventory counts and hydrate local state
+      fetch("/api/users/get", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: account.address }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.user) {
+            flip.actions.setInventoryCounts(d.user.peekCount || 0, d.user.autoMatchCount || 0);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [account.status, account.address]);
+
+  useEffect(() => {
+    if (isEntryConfirmed && !flip.state.hasEntryPaid) {
+      flip.actions.markEntryPaid();
+      resetEntryTx();
+    }
+  // Only run effect on confirmation
+  // eslint-disable-next-line
+  }, [isEntryConfirmed, flip.state.hasEntryPaid, resetEntryTx, flip.actions]);
+
+  // Start play when entry hash is present (idempotent)
+  useEffect(() => {
+    if (!playId && entryHash && account.address) {
+      fetch("/api/game/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: account.address }),
+      })
+        .then((r) => r.json())
+        .then((d) => setPlayId(d.playId))
+        .catch(() => {});
+    }
+  }, [entryHash, playId, account.address]);
+
+  // Submit final score when game completes
+  useEffect(() => {
+    if (flip.state.isComplete && playId && !hasSubmitted) {
+      setHasSubmitted(true);
+      setIsSubmittingScore(true);
+      fetch("/api/game/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playId,
+          endTimeMs: Date.now(),
+          username: account.address,
+          clientFinalTimeMs: flip.derived.finalTimeMs,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && typeof d.finalTimeMs === "number") {
+            toast.success("Score submitted", { description: `Final: ${Math.round(d.finalTimeMs/10)/100}s` });
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIsSubmittingScore(false));
+    }
+  }, [flip.state.isComplete, playId, hasSubmitted, account.address]);
+
+  // Unlock on confirmation only
+  useEffect(() => {
+    if (isEntryConfirmed && !flip.state.hasEntryPaid) {
+      flip.actions.markEntryPaid();
+    }
+  }, [isEntryConfirmed, flip.state.hasEntryPaid, flip.actions]);
+
+  // Notify on failure
+  useEffect(() => {
+    if (isEntryError) {
+      toast.error("Entry payment failed", { description: "Please try again" });
+    }
+  }, [isEntryError]);
 
   const handleSend = useCallback(async () => {
     if (!amount || !isAddress(toAddress)) {
@@ -207,11 +289,11 @@ function App() {
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
             <Coins className="h-8 w-8 text-primary" />
-            <h1 className="text-2xl font-bold text-balance">Crypto Clicker</h1>
+            <h1 className="text-2xl font-bold text-balance">flipit</h1>
         </div>
         {/* Gems indicator as in screenshot */} 
         <div className="flex items-center gap-3">
-          <div className="bg-[#17212b] rounded-md px-4 py-2 flex items-center gap-2 shadow-sm" style={{
+          {/* <div className="bg-[#17212b] rounded-md px-4 py-2 flex items-center gap-2 shadow-sm" style={{
             minWidth: 110
           }}>
             <span className="flex items-center">
@@ -223,7 +305,7 @@ function App() {
             <span className="ml-1 text-sm text-muted-foreground font-normal" style={{letterSpacing: 0}}>
               Gems
             </span>
-          </div>
+          </div> */}
        
         {account.status === "connected" ? (
           <div className="flex items-center gap-2">
@@ -244,9 +326,9 @@ function App() {
                     ? `${universalAccount.slice(0, 6)}...${universalAccount.slice(-4)}`
                     : "Universal Account"}
                 </span>
-                <span className="hidden sm:inline-block mx-2 text-xs text-muted-foreground">
+                {/* <span className="hidden sm:inline-block mx-2 text-xs text-muted-foreground">
                   (${remainingBudgetUsd === null ? "—" : remainingBudgetUsd.toFixed(2)})
-                </span>
+                </span> */}
                 <span className="ml-2 text-xs flex items-center gap-1">
                   {universalBalance?.formatted.slice(0, 6)} {universalBalance?.symbol}
                 </span>
@@ -279,14 +361,14 @@ function App() {
                       </button>
                     </div>
                     {/* Budget */}
-                    <div className="text-xs flex justify-between">
+                    {/* <div className="text-xs flex justify-between">
                       <span className="text-muted-foreground">Budget</span>
                       <span>
                         {remainingBudgetUsd === null
                           ? "—"
                           : `$${remainingBudgetUsd.toFixed(2)}`}
                       </span>
-                    </div>
+                    </div> */}
                     {/* Universal Balance statistic */}
                     <div className="bg-muted rounded px-3 py-2 flex flex-col gap-0.5">
                       <span className="text-[11px] text-muted-foreground">
@@ -314,7 +396,6 @@ function App() {
                           : "Sufficient Balance"}
                       </Button>
                     </div>
-                   
                   </div>
                   <div className="flex gap-2 mt-4">
                     <Button
@@ -343,7 +424,7 @@ function App() {
                 onClick={() => connect({ connector })}
                 size="lg"
               >
-                {connector.name}
+                Sign in with Base
               </Button>
             ))}
           </div>
@@ -353,27 +434,113 @@ function App() {
        </header>
 
       <div className="container mx-auto px-4 py-8">
-        <div className="grid lg:grid-cols-2 gap-8">
-            <ClickerPanel gems={game.gems} gemsPerClick={game.gemsPerClick} onClick={actions.click} />
-            <GameTabs
-              gems={game.gems}
-              gemsPerSecond={game.gemsPerSecond}
-              strongerClicksLevel={game.strongerClicksLevel}
-              autoMinerLevel={game.autoMinerLevel}
-              strongerClicksCost={costs.strongerClicksCost}
-              autoMinerCost={costs.autoMinerCost}
-              onBuyStrongerClicks={actions.buyStrongerClicks}
-              onBuyAutoMiner={actions.buyAutoMiner}
-              isConnected={account.status === "connected"}
-              onConnect={() => {
-                const first = connectors[0];
-                if (first) connect({ connector: first });
+        <div className="grid lg:grid-cols-[720px_1fr] gap-8 items-start">
+          <div className="flex flex-col items-center">
+            <Timer elapsedMs={flip.state.elapsedMs} penaltiesMs={flip.state.penaltiesMs} isRunning={flip.state.isRunning} />
+
+            {!flip.state.hasEntryPaid && (
+              <div className="w-full max-w-[720px] mb-3">
+                <div className="border rounded-md p-3 flex items-center justify-between bg-card/70">
+                  <div>
+                    <div className="text-sm font-medium">Pay $1.00 to play</div>
+                    <div className="text-xs text-muted-foreground">Required before your first flip.</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const units = parseUnits("1.00", USDC.decimals);
+                        const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [TREASURY_ADDRESS, units] });
+                        sendEntryTransaction({ to: USDC.address, data, value: 0n });
+                      } catch {}
+                    }}
+                    disabled={flip.state.hasEntryPaid || account.status !== "connected" || isEntryPending || isEntryConfirming}
+                  >
+                    {isEntryPending ? "Paying..." : isEntryConfirming ? "Confirming..." : "Pay & Start"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {flip.state.hasEntryPaid && !flip.state.firstFlipHappened && !flip.state.isComplete && (
+              <div className="w-full max-w-[720px] mb-3">
+                <div className="rounded-md px-3 py-2 text-sm bg-emerald-600/15 text-emerald-300 border border-emerald-700/40">Entry paid. Start flipping to begin the timer.</div>
+              </div>
+            )}
+
+            <Board
+              cards={flip.state.board}
+              onFlip={(idx) => {
+                // Send mark-start once, when first flip happens
+                if (flip.state.hasEntryPaid && !flip.state.firstFlipHappened && playId) {
+                  fetch("/api/game/mark-start", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ playId, startTimeMs: Date.now() }),
+                  }).catch(() => {});
+                }
+                flip.actions.flipCard(idx);
               }}
-              onActivateClickFrenzy={(d, m) => actions.activateClickFrenzy(d, m)}
-              onGrantGems={(n) => actions.grantGems(n)}
+              disabled={!flip.state.hasEntryPaid}
+              loadingOverlayText={isSubmittingScore ? "Submitting score…" : null}
+            />
+            <div className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
+              <span>Pairs matched: {flip.state.pairsMatched}/8</span>
+              {flip.state.isComplete && <span className="text-green-500 font-medium">Completed!</span>}
+              <Button size="sm" variant="outline" onClick={flip.actions.reset}>New Game</Button>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* <div className="border rounded-lg p-4">
+              <div className="text-sm text-muted-foreground mb-2">Budget</div>
+              <div className="text-xl font-semibold">${remainingBudgetUsd === null ? "—" : remainingBudgetUsd.toFixed(2)}</div>
+              <Button className="mt-3" size="sm" onClick={() => requestBudget(DEFAULT_BUDGET_USD)} disabled={isRequesting || account.status !== "connected"}>
+                {isRequesting ? "Requesting..." : `Top Up Balance ($${DEFAULT_BUDGET_USD})`}
+              </Button>
+            </div> */}
+
+            {/* <div className="border rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-muted-foreground">Entry Fee</div>
+                  <div className="text-lg font-semibold">$1.00 to play</div>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const units = parseUnits("1.00", USDC.decimals);
+                      const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [TREASURY_ADDRESS, units] });
+                      sendEntryTransaction({ to: USDC.address, data, value: 0n });
+                    } catch {}
+                  }}
+                  disabled={flip.state.hasEntryPaid || account.status !== "connected" || isEntryPending || isEntryConfirming}
+                  variant={flip.state.hasEntryPaid ? "secondary" : "default"}
+                  title={flip.state.hasEntryPaid ? "Already paid" : undefined}
+                >
+                  {flip.state.hasEntryPaid ? "Paid" : isEntryPending ? "Paying..." : isEntryConfirming ? "Confirming..." : "Pay & Start"}
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">Required before first flip. Uses your Spend Permission.</div>
+            </div> */}
+
+            <RightTabs
+              isConnected={account.status === "connected"}
+              onConnect={() => { const first = connectors[0]; if (first) connect({ connector: first }); }}
+              onPeek={flip.actions.usePeek}
+              onAutoMatch={flip.actions.useAutoMatch}
+              isInGame={flip.state.isRunning && !flip.state.isComplete}
+              inventory={flip.state.inventory}
+              onUseInventory={(t) => flip.actions.useFromInventory(t)}
+              onAddToInventory={(t) => flip.actions.addToInventory(t)}
+              // pass playId so store logs in-game purchases
+              // @ts-ignore
+              playId={playId}
+              userId={account.address ?? null}
             />
             </div>
-          <div className="hidden lg:block" />
+        </div>
         </div>
       </div>
     </main>

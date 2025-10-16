@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "autoMatchCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "peekCount" INTEGER NOT NULL DEFAULT 0;

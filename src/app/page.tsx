@@ -24,8 +24,6 @@ import { useFaucet } from "@/hooks/useFaucet";
 import { useFaucetEligibility } from "@/hooks/useFaucetEligibility";
 import { useSpendPermission } from "@/hooks/useSpendPermission";
 import { DEFAULT_BUDGET_USD } from "@/lib/constants";
-import { useGameState } from "@/hooks/useGameState";
-import StorePanel from "@/components/StorePanel";
 import { Coins } from "lucide-react";
 
 

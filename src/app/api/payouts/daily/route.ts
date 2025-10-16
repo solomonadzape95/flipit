@@ -32,7 +32,7 @@ export async function POST() {
     if (!pk) return NextResponse.json({ error: "Missing TREASURY_PRIVATE_KEY" }, { status: 500 });
 
     const client = createWalletClient({ chain: baseSepolia, transport: http() }).extend((c) => ({
-      account: { type: 'local', privateKey: pk },
+      account: { type: 'local', privateKey: pk } as any,
     })) as any;
 
     // Distribute USDC according to splits

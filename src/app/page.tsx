@@ -444,7 +444,7 @@ function App() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4">
-                    <Button
+                    {/* <Button
                       variant="default"
                       onClick={() => requestBudget(DEFAULT_BUDGET_USD)}
                       size="sm"
@@ -452,7 +452,7 @@ function App() {
                       title={"Approve a spending budget for seamless buys"}
                     >
                       {isRequesting ? "Requesting..." : `Top Up Budget ($${DEFAULT_BUDGET_USD})`}
-                    </Button>
+                    </Button> */}
                     <Button variant="outline" onClick={() => disconnect()} size="sm">
                       Disconnect
                     </Button>

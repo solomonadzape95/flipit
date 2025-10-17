@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "npx prisma generate && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "apply-cascade": "node scripts/apply-username-cascade.js"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.38.3",

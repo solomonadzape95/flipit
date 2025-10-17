@@ -16,6 +16,7 @@ export default function RightTabs(props: {
   onAddToInventory?: (t: "peek" | "autoMatch") => void;
   playId?: string | null;
   userId?: string | null;
+  currentUsername?: string;
 }) {
   const [tab, setTab] = useState<"store" | "leaderboard">("store");
 
@@ -51,7 +52,7 @@ export default function RightTabs(props: {
             userId={props.userId}
           />
         ) : (
-          <LeaderboardPanel />
+          <LeaderboardPanel currentUsername={props.currentUsername} />
         )}
       </div>
     </div>

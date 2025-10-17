@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 type Score = { rank: number; username: string; finalTimeMs: number };
 
-export default function LeaderboardPanel() {
+export default function LeaderboardPanel({ currentUsername }: { currentUsername?: string }) {
   const { data, isLoading, isError } = useQuery<{ scores: Score[] }>({
     queryKey: ["leaderboard"],
     queryFn: async () => {
@@ -16,6 +16,10 @@ export default function LeaderboardPanel() {
     refetchInterval: 15_000,
   });
   const scores = data?.scores ?? [];
+
+  // Debug logging
+  console.log("LeaderboardPanel - currentUsername:", currentUsername);
+  console.log("LeaderboardPanel - scores:", scores);
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -48,13 +52,40 @@ export default function LeaderboardPanel() {
               </td>
             </tr>
           )}
-          {!isError && !isLoading && scores.map((s, i) => (
-            <tr key={`${s.username}-${i}`} className="border-t">
-              <td className="p-3">{s.rank}</td>
-              <td className="p-3">{s.username}</td>
-              <td className="p-3">{formatMs(s.finalTimeMs)}</td>
-            </tr>
-          ))}
+          {!isError && !isLoading && scores.map((s, i) => {
+            const isCurrentUser = currentUsername && (
+              s.username === currentUsername || 
+              s.username === `Player_${currentUsername.slice(2, 8)}` ||
+              currentUsername === `Player_${s.username.slice(2, 8)}`
+            );
+            console.log(`Comparing: "${s.username}" === "${currentUsername}" = ${isCurrentUser}`);
+            return (
+              <tr 
+                key={`${s.username}-${i}`} 
+                className={`border-t ${isCurrentUser ? 'bg-primary/10 border-primary/20' : ''}`}
+              >
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    {s.rank}
+                    {isCurrentUser && (
+                      <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                        You
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <span className={isCurrentUser ? 'font-semibold text-primary' : ''}>{s.username}</span>
+                    {isCurrentUser && (
+                      <span className="text-xs text-primary">👑</span>
+                    )}
+                  </div>
+                </td>
+                <td className="p-3">{formatMs(s.finalTimeMs)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

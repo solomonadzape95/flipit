@@ -60,7 +60,7 @@ export default function PowerUpsPanel(props: {
       {!props.isConnected && (
         <div className="border rounded-lg p-4 text-center">
           <div className="text-sm text-muted-foreground mb-2">Sign in with Base to buy power-ups</div>
-          <Button size="sm" onClick={props.onConnect}>Connect</Button>
+          <Button size="sm" onClick={props.onConnect}>Sign in</Button>
         </div>
       )}
       <div className="border rounded-lg p-4 flex items-center justify-between">

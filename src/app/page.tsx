@@ -24,7 +24,8 @@ import { useFaucet } from "@/hooks/useFaucet";
 import { useFaucetEligibility } from "@/hooks/useFaucetEligibility";
 import { useSpendPermission } from "@/hooks/useSpendPermission";
 import { DEFAULT_BUDGET_USD } from "@/lib/constants";
-import { Coins } from "lucide-react";
+import { Coins, Edit3 } from "lucide-react";
+import UsernameModal from "@/components/UsernameModal";
 
 
 function App() {
@@ -61,6 +62,8 @@ function App() {
   const [playId, setPlayId] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmittingScore, setIsSubmittingScore] = useState(false);
+  const [isUsernameModalOpen, setIsUsernameModalOpen] = useState(false);
+  const [currentUsername, setCurrentUsername] = useState<string>("");
 
   // Only ONE useSendTransaction instance for user-initiated txs used below
   const {
@@ -89,6 +92,9 @@ function App() {
 
   useEffect(() => {
     if (account.status === "connected" && account.address) {
+      // Set a temporary username immediately
+      setCurrentUsername(`Player_${account.address.slice(2, 8)}`);
+      
       fetch("/api/users/upsert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,11 +109,22 @@ function App() {
       })
         .then((r) => r.json())
         .then((d) => {
+          console.log("User data from API:", d);
           if (d?.user) {
             flip.actions.setInventoryCounts(d.user.peekCount || 0, d.user.autoMatchCount || 0);
+            // Only update username if we got a valid one from the database
+            if (d.user.username) {
+              console.log("Setting username from database:", d.user.username);
+              setCurrentUsername(d.user.username);
+            } else {
+              console.log("No username in database, keeping default");
+            }
           }
         })
         .catch(() => {});
+    } else {
+      // Reset username when disconnected
+      setCurrentUsername("");
     }
   }, [account.status, account.address]);
 
@@ -139,16 +156,28 @@ function App() {
     if (flip.state.isComplete && playId && !hasSubmitted) {
       setHasSubmitted(true);
       setIsSubmittingScore(true);
-      fetch("/api/game/submit", {
+      
+      // Get user's username from the database before submitting
+      fetch("/api/users/get", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          playId,
-          endTimeMs: Date.now(),
-          username: account.address,
-          clientFinalTimeMs: flip.derived.finalTimeMs,
-        }),
+        body: JSON.stringify({ userId: account.address }),
       })
+        .then((r) => r.json())
+        .then((userData) => {
+          const username = userData?.user?.username || `Player_${account.address?.slice(2, 8)}`;
+          
+          return fetch("/api/game/submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              playId,
+              endTimeMs: Date.now(),
+              username,
+              clientFinalTimeMs: flip.derived.finalTimeMs,
+            }),
+          });
+        })
         .then((r) => r.json())
         .then((d) => {
           if (d && typeof d.finalTimeMs === "number") {
@@ -358,6 +387,25 @@ function App() {
                         Copy
                       </button>
                     </div>
+                    
+                    {/* Username display and edit */}
+                    <div className="flex items-center gap-2 justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Username:</span>
+                        <span className="text-sm font-medium">{currentUsername || "Loading..."}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-primary font-medium hover:underline flex items-center gap-1"
+                        onClick={() => setIsUsernameModalOpen(true)}
+                        tabIndex={-1}
+                        aria-label="Edit username"
+                        title="Edit username"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        Edit
+                      </button>
+                    </div>
                     {/* Budget */}
                     {/* <div className="text-xs flex justify-between">
                       <span className="text-muted-foreground">Budget</span>
@@ -536,11 +584,24 @@ function App() {
               // @ts-ignore
               playId={playId}
               userId={account.address ?? null}
+              currentUsername={currentUsername}
             />
             </div>
         </div>
         </div>
       </div>
+      
+      {/* Username Modal */}
+      <UsernameModal
+        isOpen={isUsernameModalOpen}
+        onClose={() => setIsUsernameModalOpen(false)}
+        currentUsername={currentUsername}
+        userId={account.address || ""}
+        onUsernameUpdate={(newUsername) => {
+          setCurrentUsername(newUsername);
+          setIsUsernameModalOpen(false);
+        }}
+      />
     </main>
   );
 }

@@ -444,15 +444,21 @@ function App() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4">
-                    {/* <Button
+                    <Button
                       variant="default"
-                      onClick={() => requestBudget(DEFAULT_BUDGET_USD)}
                       size="sm"
-                      disabled={isRequesting || account.status !== "connected"}
-                      title={"Approve a spending budget for seamless buys"}
+                     disabled={faucetMutation.isPending || !faucetEligibility.isEligible}
+                      title={"Get more testnet usdc"}
                     >
-                      {isRequesting ? "Requesting..." : `Top Up Budget ($${DEFAULT_BUDGET_USD})`}
-                    </Button> */}
+                      <a
+    href="https://faucet.circle.com/"
+    target="_blank" // This ensures the link opens in a new tab
+    rel="noopener noreferrer" // Security best practice for external links
+    title="Get free testnet USDC from the official Circle Faucet"
+  >
+    Get Testnet USDC (Faucet)
+  </a>
+                    </Button>
                     <Button variant="outline" onClick={() => disconnect()} size="sm">
                       Disconnect
                     </Button>

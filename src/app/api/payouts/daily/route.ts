@@ -88,6 +88,11 @@ export async function POST() {
       txs.push(hash);
     }
 
+    // Clear today's leaderboard scores so the next day starts fresh
+    await prisma.score.deleteMany({
+      where: { createdAt: { gte: start, lte: end } },
+    });
+
     return NextResponse.json({ ok: true, playsToday, distributableUsd, txs });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

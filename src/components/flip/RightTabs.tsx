@@ -17,6 +17,7 @@ export default function RightTabs(props: {
   playId?: string | null;
   userId?: string | null;
   currentUsername?: string;
+  onSyncInventory?: () => void;
 }) {
   const [tab, setTab] = useState<"store" | "leaderboard">("store");
 
@@ -53,6 +54,17 @@ export default function RightTabs(props: {
           />
         ) : (
           <LeaderboardPanel currentUsername={props.currentUsername} />
+        )}
+        {props.onSyncInventory && (
+          <div className="mt-3">
+            <button
+              className="text-xs underline text-muted-foreground hover:text-foreground"
+              onClick={props.onSyncInventory}
+              title="Refresh inventory from server"
+            >
+              Refresh inventory
+            </button>
+          </div>
         )}
       </div>
     </div>

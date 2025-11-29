@@ -1,6 +1,29 @@
-import { createPublicClient, http, formatUnits } from "viem";
-import { baseSepolia } from "viem/chains";
+import { createPublicClient, http, formatUnits, type Chain } from "viem";
+import { celo, celoAlfajores } from "viem/chains";
 import { USDC, erc20Abi } from "./usdc";
+
+// Celo Sepolia testnet chain definition
+const celoSepolia: Chain = {
+  id: 111557560,
+  name: "Celo Sepolia",
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
+  rpcUrls: {
+    default: {
+      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://rpc.ankr.com/celo_sepolia"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "CeloScan Sepolia",
+      url: "https://sepolia.celoscan.io",
+    },
+  },
+  testnet: true,
+} as const;
 
 // Minimum balance threshold - if user has more than this, they can't use the faucet
 export const FAUCET_BALANCE_THRESHOLD = 0.1;
@@ -13,9 +36,15 @@ export async function isEligibleForFaucet(
   address: string
 ): Promise<{ eligible: boolean; balance: string; reason?: string }> {
   try {
+    const network = process.env.NEXT_PUBLIC_CELO_NETWORK;
+    const chain = network === "mainnet" 
+      ? celo 
+      : network === "alfajores"
+      ? celoAlfajores
+      : celoSepolia;
     const publicClient = createPublicClient({
-      chain: baseSepolia,
-      transport: http(),
+      chain,
+      transport: http(chain.rpcUrls.default.http[0]),
     });
 
     const balance = await publicClient.readContract({
@@ -32,7 +61,7 @@ export async function isEligibleForFaucet(
       return {
         eligible: false,
         balance: balanceFormatted,
-        reason: `Balance (${balanceFormatted} USDC) exceeds threshold of ${FAUCET_BALANCE_THRESHOLD} USDC`,
+        reason: `Balance (${balanceFormatted} cUSD) exceeds threshold of ${FAUCET_BALANCE_THRESHOLD} cUSD`,
       };
     }
 

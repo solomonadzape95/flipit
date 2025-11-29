@@ -8,7 +8,7 @@ A Next.js demo application and memory-flip game built to showcase how to integra
 
 `flipit` is a single-player memory card game that uses Base Account Sub Accounts as your in-app wallet. It demo's frictionless, app-embedded wallets with seamless “spend permission” top-ups and lets you experience sub accounts in a real dapp flow:
 
-- **Sign in with Base** (universal account)
+- **Sign in with Celo** (universal account)
 - **Sub Account auto-created** for this game
 - **Pay to play** (with USDC)
 - **Spend permission** (top up your sub account budget, zero signature)
@@ -77,7 +77,7 @@ Read [FAUCET_SETUP.md](./FAUCET_SETUP.md) for fully automated faucet/token setup
 
 ## In-App Flow (User Experience)
 
-1. **Sign in with Base**: Creates a sub account just for this app.
+1. **Sign in with Celo**: Creates a sub account just for this app.
 2. **Fund universal account** if needed—use in-app "Get USDC on Base Sepolia" button (testnet only).
 3. **See Your Balances**:
     - Universal (main) USDC

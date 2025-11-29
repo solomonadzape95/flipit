@@ -1,9 +1,37 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createWalletClient, http, formatUnits, parseUnits } from "viem";
-import { baseSepolia } from "viem/chains";
+import { createWalletClient, http, formatUnits, parseUnits, type Chain } from "viem";
+import { celo, celoAlfajores } from "viem/chains";
 import { USDC, erc20Abi } from "@/lib/usdc";
-import { PAYOUT_POOL_PERCENT, PAYOUT_SPLITS, TREASURY_ADDRESS } from "@/lib/constants";
+import { PAYOUT_POOL_PERCENT, PAYOUT_SPLITS, TREASURY_ADDRESS, ENTRY_FEE_CUSD } from "@/lib/constants";
+
+// Celo Sepolia testnet chain definition
+const celoSepolia: Chain = {
+  id: 111557560,
+  name: "Celo Sepolia",
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
+  rpcUrls: {
+    default: {
+      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://rpc.ankr.com/celo_sepolia"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "CeloScan Sepolia",
+      url: "https://sepolia.celoscan.io",
+    },
+  },
+  testnet: true,
+} as const;
+
+// Handle both GET (from Vercel cron) and POST (manual calls)
+export async function GET() {
+  return POST();
+}
 
 export async function POST() {
   try {
@@ -14,7 +42,7 @@ export async function POST() {
 
     // Sum entry fees count from plays started today
     const playsToday = await prisma.play.count({ where: { startTime: { gte: start, lte: end } } });
-    const totalPoolUsd = playsToday * 1; // $1 per game
+    const totalPoolUsd = playsToday * ENTRY_FEE_CUSD; // 0.01 cUSD per game
     const distributableUsd = totalPoolUsd * PAYOUT_POOL_PERCENT;
 
     // Top 3 fastest scores today
@@ -31,16 +59,23 @@ export async function POST() {
     const pk = process.env.TREASURY_PRIVATE_KEY as `0x${string}` | undefined;
     if (!pk) return NextResponse.json({ error: "Missing TREASURY_PRIVATE_KEY" }, { status: 500 });
 
-    const client = createWalletClient({ chain: baseSepolia, transport: http() }).extend((c) => ({
+    const network = process.env.NEXT_PUBLIC_CELO_NETWORK;
+    const chain = network === "mainnet" 
+      ? celo 
+      : network === "alfajores"
+      ? celoAlfajores
+      : celoSepolia;
+    const client = createWalletClient({ chain, transport: http(chain.rpcUrls.default.http[0]) }).extend((c) => ({
       account: { type: 'local', privateKey: pk } as any,
     })) as any;
 
-    // Distribute USDC according to splits
+    // Distribute cUSD according to splits
     const txs: string[] = [];
     for (let i = 0; i < top3.length; i++) {
       const shareUsd = distributableUsd * PAYOUT_SPLITS[i];
       if (shareUsd <= 0) continue;
-      const units = parseUnits(shareUsd.toFixed(2), USDC.decimals);
+      // Use 18 decimals for cUSD
+      const units = parseUnits(shareUsd.toFixed(18), USDC.decimals);
       const hash = await client.sendTransaction({
         to: USDC.address,
         data: {

@@ -44,11 +44,18 @@ export default function PowerUpsPanel(props: {
           state.activePurchase === "peek"
             ? { userId: props.userId, peekDelta: 1 }
             : { userId: props.userId, autoMatchDelta: 1 };
-        fetch("/api/users/inventory", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }).catch(() => {});
+        // Retry inventory persistence to be resilient to transient failures
+        const bodyJson = JSON.stringify(body);
+        let tries = 0;
+        const postInv = () =>
+          fetch("/api/users/inventory", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: bodyJson,
+          }).catch(() => {
+            if (++tries < 3) setTimeout(postInv, 400 * tries);
+          });
+        postInv();
       }
       toast.success("Added to collection", { description: `${state.activePurchase} saved` });
     }
@@ -59,7 +66,7 @@ export default function PowerUpsPanel(props: {
     <div className="space-y-3">
       {!props.isConnected && (
         <div className="border rounded-lg p-4 text-center">
-          <div className="text-sm text-muted-foreground mb-2">Sign in with Base to buy power-ups</div>
+          <div className="text-sm text-muted-foreground mb-2">Sign in with Celo to buy power-ups</div>
           <Button size="sm" onClick={props.onConnect}>Sign in</Button>
         </div>
       )}

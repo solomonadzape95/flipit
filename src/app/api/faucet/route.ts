@@ -1,6 +1,31 @@
-import { CdpClient } from "@coinbase/cdp-sdk";
 import { NextResponse } from "next/server";
 import { isEligibleForFaucet } from "@/lib/faucet";
+import { createWalletClient, http, parseUnits, encodeFunctionData, type Chain } from "viem";
+import { celo, celoAlfajores } from "viem/chains";
+import { USDC, erc20Abi } from "@/lib/usdc";
+
+// Celo Sepolia testnet chain definition
+const celoSepolia: Chain = {
+  id: 111557560,
+  name: "Celo Sepolia",
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
+  rpcUrls: {
+    default: {
+      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://rpc.ankr.com/celo_sepolia"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "CeloScan Sepolia",
+      url: "https://sepolia.celoscan.io",
+    },
+  },
+  testnet: true,
+} as const;
 
 export async function POST(request: Request) {
   try {
@@ -27,47 +52,56 @@ export async function POST(request: Request) {
     }
 
     // Validate that required environment variables are set
-    const apiKeyId = process.env.CDP_API_KEY_ID;
-    const apiKeySecret = process.env.CDP_API_KEY_SECRET;
-    const walletSecret = process.env.CDP_WALLET_SECRET;
-
-    if (!apiKeyId || !apiKeySecret || !walletSecret) {
-      console.error("Missing CDP credentials in environment variables");
+    const faucetPrivateKey = process.env.FAUCET_PRIVATE_KEY;
+    if (!faucetPrivateKey) {
+      console.error("Missing FAUCET_PRIVATE_KEY in environment variables");
       return NextResponse.json(
-        { error: "Server configuration error: CDP credentials not configured" },
+        { error: "Server configuration error: Faucet private key not configured" },
         { status: 500 }
       );
     }
 
-    // Initialize CDP client
-    const cdp = new CdpClient();
+    const network = process.env.NEXT_PUBLIC_CELO_NETWORK;
+    const chain = network === "mainnet" 
+      ? celo 
+      : network === "alfajores"
+      ? celoAlfajores
+      : celoSepolia;
+    const explorerBaseUrl = network === "mainnet" 
+      ? "https://celoscan.io" 
+      : network === "alfajores"
+      ? "https://alfajores.celoscan.io"
+      : "https://sepolia.celoscan.io";
 
-    // Request USDC from faucet for the provided address
-    const faucetResponse = await cdp.evm.requestFaucet({
-      address: address,
-      network: "base-sepolia",
-      token: "usdc",
+    // Create wallet client for faucet
+    const walletClient = createWalletClient({
+      chain,
+      transport: http(chain.rpcUrls.default.http[0]),
+      account: faucetPrivateKey as `0x${string}`,
+    });
+
+    // Send cUSD to the user (e.g., 10 cUSD for testing)
+    const amount = parseUnits("10", USDC.decimals);
+    const data = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [address as `0x${string}`, amount],
+    });
+
+    const hash = await walletClient.sendTransaction({
+      to: USDC.address,
+      data,
+      value: 0n,
     });
 
     return NextResponse.json({
       success: true,
-      transactionHash: faucetResponse.transactionHash,
-      explorerUrl: `https://sepolia.basescan.org/tx/${faucetResponse.transactionHash}`,
-      message: "USDC sent successfully to your wallet",
+      transactionHash: hash,
+      explorerUrl: `${explorerBaseUrl}/tx/${hash}`,
+      message: "cUSD sent successfully to your wallet",
     });
   } catch (error) {
     console.error("Faucet error:", error);
-
-    // Handle rate limiting or other API errors
-    if (error && typeof error === "object" && "response" in error) {
-      const apiError = error as { response?: { status?: number } };
-      if (apiError.response?.status === 429) {
-        return NextResponse.json(
-          { error: "Rate limit reached. Please try again in 24 hours." },
-          { status: 429 }
-        );
-      }
-    }
 
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error occurred";

@@ -22,7 +22,6 @@ import { parseUnits, isAddress, encodeFunctionData } from "viem";
 import { toast } from "sonner";
 import { useFaucet } from "@/hooks/useFaucet";
 import { useFaucetEligibility } from "@/hooks/useFaucetEligibility";
-import { useSpendPermission } from "@/hooks/useSpendPermission";
 import { DEFAULT_BUDGET_USD } from "@/lib/constants";
 import { Coins, Edit3 } from "lucide-react";
 import UsernameModal from "@/components/UsernameModal";
@@ -32,23 +31,22 @@ function App() {
   const account = useAccount();
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
-  const connections = useConnections();
-  const [_subAccount, universalAccount] = useMemo(() => {
-    return connections.flatMap((connection) => connection.accounts);
-  }, [connections]);
+  
+  // For Celo/Minipay, we use the connected account directly (no sub-accounts)
+  const walletAddress = account.address;
 
-  // Get universal account balance
-  const { data: universalBalance } = useBalance({
-    address: universalAccount,
+  // Get wallet balance
+  const { data: walletBalance } = useBalance({
+    address: walletAddress,
     token: USDC.address,
     query: {
       refetchInterval: 1000,
-      enabled: !!universalAccount,
+      enabled: !!walletAddress,
     },
   });
 
   // Check faucet eligibility based on balance
-  const faucetEligibility = useFaucetEligibility(universalBalance?.value);
+  const faucetEligibility = useFaucetEligibility(walletBalance?.value);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [toAddress, setToAddress] = useState("");
@@ -56,12 +54,27 @@ function App() {
   const [toastId, setToastId] = useState<string | number | null>(null);
 
   const faucetMutation = useFaucet();
-  const { remainingBudgetUsd, isRequesting, requestBudget } = useSpendPermission();
   const flip = useFlipMatch();
   const entryPurchase = useStorePurchases();
   const [playId, setPlayId] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmittingScore, setIsSubmittingScore] = useState(false);
+  const syncInventoryFromDb = useCallback(() => {
+    if (!(account.status === "connected" && account.address)) return;
+    fetch("/api/users/get", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: account.address }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.user) {
+          flip.actions.setInventoryCounts(d.user.peekCount || 0, d.user.autoMatchCount || 0);
+          if (d.user.username) setCurrentUsername(d.user.username);
+        }
+      })
+      .catch(() => {});
+  }, [account.status, account.address, flip.actions]);
   const [isUsernameModalOpen, setIsUsernameModalOpen] = useState(false);
   const [currentUsername, setCurrentUsername] = useState<string>("");
 
@@ -101,32 +114,30 @@ function App() {
         body: JSON.stringify({ userId: account.address }),
       }).catch(() => {});
 
-      // Pull inventory counts and hydrate local state
-      fetch("/api/users/get", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: account.address }),
-      })
-        .then((r) => r.json())
-        .then((d) => {
-          console.log("User data from API:", d);
-          if (d?.user) {
-            flip.actions.setInventoryCounts(d.user.peekCount || 0, d.user.autoMatchCount || 0);
-            // Only update username if we got a valid one from the database
-            if (d.user.username) {
-              console.log("Setting username from database:", d.user.username);
-              setCurrentUsername(d.user.username);
-            } else {
-              console.log("No username in database, keeping default");
-            }
-          }
-        })
-        .catch(() => {});
+      // Initial inventory/username hydration
+      syncInventoryFromDb();
     } else {
       // Reset username when disconnected
       setCurrentUsername("");
     }
-  }, [account.status, account.address]);
+  }, [account.status, account.address, syncInventoryFromDb]);
+
+  // Re-sync inventory periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      syncInventoryFromDb();
+    }, 30000); // Sync every 30 seconds
+    return () => clearInterval(interval);
+  }, [syncInventoryFromDb]);
+
+  // Re-sync when tab becomes visible again (handles reconnects/mobile resumes)
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") syncInventoryFromDb();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [syncInventoryFromDb]);
 
   useEffect(() => {
     if (isEntryConfirmed && !flip.state.hasEntryPaid) {
@@ -257,8 +268,8 @@ function App() {
   }, [isConfirmed, toastId, amount, toAddress, resetTransaction]);
 
   const handleFundAccount = useCallback(async () => {
-    if (!universalAccount) {
-      toast.error("No universal account found", {
+    if (!walletAddress) {
+      toast.error("No wallet found", {
         description: "Please make sure your wallet is properly connected",
       });
       return;
@@ -276,7 +287,7 @@ function App() {
     });
 
     faucetMutation.mutate(
-      { address: universalAccount },
+      { address: walletAddress },
       {
         onSuccess: (data) => {
           toast.dismiss(fundingToastId);
@@ -307,7 +318,7 @@ function App() {
         },
       }
     );
-  }, [universalAccount, faucetMutation, faucetEligibility]);
+  }, [walletAddress, faucetMutation, faucetEligibility]);
 
   return (
     <main className="min-h-screen">
@@ -349,15 +360,12 @@ function App() {
                 aria-expanded={isDialogOpen}
               >
                 <span className="truncate max-w-[100px] text-xs font-mono">
-                  {universalAccount
-                    ? `${universalAccount.slice(0, 6)}...${universalAccount.slice(-4)}`
-                    : "Universal Account"}
+                  {walletAddress
+                    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+                    : "Wallet"}
                 </span>
-                {/* <span className="hidden sm:inline-block mx-2 text-xs text-muted-foreground">
-                  (${remainingBudgetUsd === null ? "—" : remainingBudgetUsd.toFixed(2)})
-                </span> */}
                 <span className="ml-2 text-xs flex items-center gap-1">
-                  {universalBalance?.formatted.slice(0, 6)} {universalBalance?.symbol}
+                  {walletBalance?.formatted.slice(0, 6)} {walletBalance?.symbol}
                 </span>
                 <svg className="w-4 h-4 ml-1 opacity-70" fill="none" viewBox="0 0 20 20"><path stroke="currentColor" strokeWidth="1.5" d="M6 8l4 4 4-4"/></svg>
               </Button>
@@ -369,20 +377,20 @@ function App() {
                     {/* Account Address copy */}
                     <div className="flex items-center gap-2 justify-between">
                       <span className="font-mono text-xs text-muted-foreground truncate">
-                        {universalAccount
-                          ? `${universalAccount.slice(0, 10)}...${universalAccount.slice(-8)}`
+                        {walletAddress
+                          ? `${walletAddress.slice(0, 10)}...${walletAddress.slice(-8)}`
                           : "—"}
                       </span>
                       <button
                         type="button"
                         className="text-xs text-primary font-medium hover:underline"
                         onClick={() => {
-                          navigator.clipboard.writeText(universalAccount || "");
+                          navigator.clipboard.writeText(walletAddress || "");
                           toast.success("Address copied!");
                         }}
                         tabIndex={-1}
-                        aria-label="Copy universal account address"
-                        title="Copy universal account address"
+                        aria-label="Copy wallet address"
+                        title="Copy wallet address"
                       >
                         Copy
                       </button>
@@ -415,14 +423,14 @@ function App() {
                           : `$${remainingBudgetUsd.toFixed(2)}`}
                       </span>
                     </div> */}
-                    {/* Universal Balance statistic */}
+                    {/* Wallet Balance statistic */}
                     <div className="bg-muted rounded px-3 py-2 flex flex-col gap-0.5">
                       <span className="text-[11px] text-muted-foreground">
-                        Universal USDC Balance
+                        cUSD Balance
                       </span>
                       <span className="font-medium text-base">
-                        {universalBalance
-                          ? `${universalBalance.formatted} ${universalBalance.symbol}`
+                        {walletBalance
+                          ? `${walletBalance.formatted} ${walletBalance.symbol}`
                           : "Loading..."}
                       </span>
                       <Button
@@ -438,21 +446,20 @@ function App() {
                         {faucetMutation.isPending
                           ? "Funding..."
                           : faucetEligibility.isEligible
-                          ? "Get USDC on Base Sepolia"
+                          ? (() => {
+                              const network = process.env.NEXT_PUBLIC_CELO_NETWORK;
+                              const networkName = network === "mainnet" 
+                                ? "Celo" 
+                                : network === "alfajores"
+                                ? "Alfajores"
+                                : "Celo Sepolia";
+                              return `Get cUSD on ${networkName}`;
+                            })()
                           : "Sufficient Balance"}
                       </Button>
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4">
-                    <Button
-                      variant="default"
-                      onClick={() => requestBudget(DEFAULT_BUDGET_USD)}
-                      size="sm"
-                      disabled={isRequesting || account.status !== "connected"}
-                      title={"Approve a spending budget for seamless buys"}
-                    >
-                      {isRequesting ? "Requesting..." : `Top Up Budget ($${DEFAULT_BUDGET_USD})`}
-                    </Button>
                     <Button variant="outline" onClick={() => disconnect()} size="sm">
                       Disconnect
                     </Button>
@@ -464,15 +471,14 @@ function App() {
           </div>
         ) : (
           <div className="flex gap-2">
-            {connectors.slice(0, 1).map((connector) => (
+            {connectors.length > 0 && (
               <Button
-                key={connector.uid}
-                onClick={() => connect({ connector })}
+                onClick={() => connect({ connector: connectors[0] })}
                 size="lg"
               >
-                Sign in with Base
+                Connect Wallet
               </Button>
-            ))}
+            )}
           </div>
         )}
         </div>
@@ -488,14 +494,14 @@ function App() {
               <div className="w-full max-w-[720px] mb-3">
                 <div className="border rounded-md p-3 flex items-center justify-between bg-card/70">
                   <div>
-                    <div className="text-sm font-medium">Pay $1.00 to play</div>
+                    <div className="text-sm font-medium">Pay 0.01 cUSD to play</div>
                     <div className="text-xs text-muted-foreground">Required before your first flip.</div>
                   </div>
                   <Button
                     size="sm"
                     onClick={async () => {
                       try {
-                        const units = parseUnits("1.00", USDC.decimals);
+                        const units = parseUnits("0.01", USDC.decimals);
                         const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [TREASURY_ADDRESS, units] });
                         sendEntryTransaction({ to: USDC.address, data, value: 0n });
                       } catch {}
@@ -519,11 +525,18 @@ function App() {
               onFlip={(idx) => {
                 // Send mark-start once, when first flip happens
                 if (flip.state.hasEntryPaid && !flip.state.firstFlipHappened && playId) {
-                  fetch("/api/game/mark-start", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ playId, startTimeMs: Date.now() }),
-                  }).catch(() => {});
+                  // Retry mark-start up to 3 times
+                  const body = JSON.stringify({ playId, startTimeMs: Date.now() });
+                  let attempts = 0;
+                  const tryPost = () =>
+                    fetch("/api/game/mark-start", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body,
+                    }).catch(() => {
+                      if (++attempts < 3) setTimeout(tryPost, 400 * attempts);
+                    });
+                  tryPost();
                 }
                 flip.actions.flipCard(idx);
               }}
@@ -585,6 +598,7 @@ function App() {
               playId={playId}
               userId={account.address ?? null}
               currentUsername={currentUsername}
+              onSyncInventory={syncInventoryFromDb}
             />
             </div>
         </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createWalletClient, http, formatUnits, parseUnits, type Chain } from "viem";
+import { createWalletClient, createPublicClient, http, parseUnits, encodeFunctionData, type Chain } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { celo, celoAlfajores } from "viem/chains";
 import { USDC, erc20Abi } from "@/lib/usdc";
 import { PAYOUT_POOL_PERCENT, PAYOUT_SPLITS, TREASURY_ADDRESS, ENTRY_FEE_CUSD } from "@/lib/constants";
@@ -66,31 +67,45 @@ export async function POST() {
       : network === "alfajores"
       ? celoAlfajores
       : celoSepolia;
-    const client = createWalletClient({ chain, transport: http(chain.rpcUrls.default.http[0]) }).extend((c) => ({
-      account: { type: 'local', privateKey: pk } as any,
-    })) as any;
+    const account = privateKeyToAccount(pk);
+    const client = createWalletClient({
+      chain,
+      transport: http(chain.rpcUrls.default.http[0]),
+      account,
+    });
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(chain.rpcUrls.default.http[0]),
+    });
 
     // Distribute cUSD according to splits
     const txs: string[] = [];
+    const baseNonce = await publicClient.getTransactionCount({ address: account.address });
     for (let i = 0; i < top3.length; i++) {
       const shareUsd = distributableUsd * PAYOUT_SPLITS[i];
       if (shareUsd <= 0) continue;
       // Use 18 decimals for cUSD
       const units = parseUnits(shareUsd.toFixed(18), USDC.decimals);
+      const data = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: "transfer",
+        args: [top3[i].userId as `0x${string}`, units],
+      });
+      const nonce = baseNonce + txs.length;
       const hash = await client.sendTransaction({
         to: USDC.address,
-        data: {
-          abi: erc20Abi,
-          functionName: "transfer",
-          args: [top3[i].userId as `0x${string}`, units],
-        } as any,
+        data,
+        nonce,
       });
       txs.push(hash);
     }
 
-    // Clear today's leaderboard scores so the next day starts fresh
+    // Clear today's leaderboard scores and play records so the next day starts fresh
     await prisma.score.deleteMany({
       where: { createdAt: { gte: start, lte: end } },
+    });
+    await prisma.play.deleteMany({
+      where: { startTime: { gte: start, lte: end } },
     });
 
     return NextResponse.json({ ok: true, playsToday, distributableUsd, txs });

@@ -33,8 +33,7 @@ function CardView({ card, onClick }: { card: Card; onClick: () => void }) {
   const isFaceUp = card.isRevealed || card.isMatched;
   return (
     <button
-      className="relative rounded-md border border-sky-900 bg-slate-900/70 focus:outline-none shadow-sm"
-      style={{ width: 108, height: 108 }}
+      className="relative rounded-md border border-sky-900 bg-slate-900/70 focus:outline-none shadow-sm w-20 h-20 sm:w-24 sm:h-24 lg:w-28 lg:h-28"
       onClick={onClick}
       disabled={card.isMatched || isFaceUp}
       aria-label={card.isMatched ? "Matched" : isFaceUp ? "Revealed" : "Hidden card"}

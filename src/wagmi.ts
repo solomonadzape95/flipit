@@ -4,8 +4,9 @@ import { type Chain } from "viem";
 import { injected, walletConnect } from "wagmi/connectors";
 
 // Celo Sepolia testnet chain definition
+// Chain ID: 11142220 (from https://docs.celo.org/tooling/overview/network-overview)
 const celoSepolia: Chain = {
-  id: 111557560,
+  id: 11142220,
   name: "Celo Sepolia",
   nativeCurrency: {
     decimals: 18,
@@ -14,13 +15,13 @@ const celoSepolia: Chain = {
   },
   rpcUrls: {
     default: {
-      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://rpc.ankr.com/celo_sepolia"],
+      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://forno.celo-sepolia.celo-testnet.org"],
     },
   },
   blockExplorers: {
     default: {
-      name: "CeloScan Sepolia",
-      url: "https://sepolia.celoscan.io",
+      name: "Blockscout",
+      url: "https://celo-sepolia.blockscout.com",
     },
   },
   testnet: true,
@@ -45,7 +46,13 @@ export function getConfig() {
             walletConnect({
               projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
               showQrModal: true,
-            }),
+              metadata: {
+                name: "flipit",
+                description: "Memory card game on Celo",
+                url: typeof window !== "undefined" ? window.location.origin : "",
+                icons: typeof window !== "undefined" ? [`${window.location.origin}/favicon.ico`] : [],
+        },
+      }),
           ]
         : []),
     ],

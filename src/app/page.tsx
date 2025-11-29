@@ -32,6 +32,20 @@ function App() {
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
   
+  // Detect if running in MiniPay
+  const [isMiniPay, setIsMiniPay] = useState(false);
+  
+  // Auto-connect when MiniPay is detected
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.ethereum?.isMiniPay) {
+      setIsMiniPay(true);
+      // Auto-connect if not already connected
+      if (account.status !== "connected" && connectors.length > 0) {
+        connect({ connector: connectors[0] });
+      }
+    }
+  }, [account.status, connectors, connect]);
+  
   // For Celo/Minipay, we use the connected account directly (no sub-accounts)
   const walletAddress = account.address;
 
@@ -59,6 +73,8 @@ function App() {
   const [playId, setPlayId] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmittingScore, setIsSubmittingScore] = useState(false);
+  const [isMinipayPending, setIsMinipayPending] = useState(false);
+  const [paymentReceiptId, setPaymentReceiptId] = useState<string | null>(null);
   const syncInventoryFromDb = useCallback(() => {
     if (!(account.status === "connected" && account.address)) return;
     fetch("/api/users/get", {
@@ -74,7 +90,7 @@ function App() {
         }
       })
       .catch(() => {});
-  }, [account.status, account.address, flip.actions]);
+  }, [account.status, account.address, flip.actions.setInventoryCounts]);
   const [isUsernameModalOpen, setIsUsernameModalOpen] = useState(false);
   const [currentUsername, setCurrentUsername] = useState<string>("");
 
@@ -102,6 +118,16 @@ function App() {
     isSuccess: isEntryConfirmed,
     isError: isEntryError,
   } = useWaitForTransactionReceipt({ hash: entryHash });
+  
+  // Track MiniPay transactions manually
+  const [minipayTxHash, setMinipayTxHash] = useState<string | null>(null);
+  const { 
+    isLoading: isMinipayConfirming, 
+    isSuccess: isMinipayConfirmed 
+  } = useWaitForTransactionReceipt({ 
+    hash: minipayTxHash as `0x${string}` | undefined,
+    query: { enabled: !!minipayTxHash }
+  });
 
   useEffect(() => {
     if (account.status === "connected" && account.address) {
@@ -122,45 +148,54 @@ function App() {
     }
   }, [account.status, account.address, syncInventoryFromDb]);
 
-  // Re-sync inventory periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      syncInventoryFromDb();
-    }, 30000); // Sync every 30 seconds
-    return () => clearInterval(interval);
-  }, [syncInventoryFromDb]);
-
-  // Re-sync when tab becomes visible again (handles reconnects/mobile resumes)
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "visible") syncInventoryFromDb();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [syncInventoryFromDb]);
+  // Removed periodic/visibility syncing to avoid excessive requests.
 
   useEffect(() => {
-    if (isEntryConfirmed && !flip.state.hasEntryPaid) {
+    if (isEntryConfirmed && entryHash) {
       flip.actions.markEntryPaid();
+      setPaymentReceiptId(entryHash);
       resetEntryTx();
     }
-  // Only run effect on confirmation
-  // eslint-disable-next-line
-  }, [isEntryConfirmed, flip.state.hasEntryPaid, resetEntryTx, flip.actions]);
+  }, [isEntryConfirmed, entryHash, flip.actions, resetEntryTx]);
 
-  // Start play when entry hash is present (idempotent)
   useEffect(() => {
-    if (!playId && entryHash && account.address) {
+    if (isMinipayConfirmed && minipayTxHash) {
+      flip.actions.markEntryPaid();
+      setPaymentReceiptId(minipayTxHash);
+    }
+  }, [isMinipayConfirmed, minipayTxHash, flip.actions]);
+
+  // Start play when payment receipt is available (works for both wagmi and MiniPay)
+  useEffect(() => {
+    if (!playId && paymentReceiptId && account.address && flip.state.hasEntryPaid) {
+      console.log("Starting game - payment confirmed, creating play record...");
       fetch("/api/game/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: account.address }),
       })
-        .then((r) => r.json())
-        .then((d) => setPlayId(d.playId))
-        .catch(() => {});
+        .then((r) => {
+          if (!r.ok) {
+            throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+          }
+          return r.json();
+        })
+        .then((d) => {
+          if (d?.playId) {
+            console.log("Game started with playId:", d.playId);
+            setPlayId(d.playId);
+            setMinipayTxHash(null);
+            setPaymentReceiptId(null);
+          } else {
+            console.error("No playId in response:", d);
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to start game:", error);
+          toast.error("Failed to start game", { description: error.message });
+        });
     }
-  }, [entryHash, playId, account.address]);
+  }, [paymentReceiptId, playId, account.address, flip.state.hasEntryPaid]);
 
   // Submit final score when game completes
   useEffect(() => {
@@ -189,23 +224,36 @@ function App() {
             }),
           });
         })
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) {
+            throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+          }
+          return r.json();
+        })
         .then((d) => {
           if (d && typeof d.finalTimeMs === "number") {
+            console.log("Score submitted successfully:", d);
             toast.success("Score submitted", { description: `Final: ${Math.round(d.finalTimeMs/10)/100}s` });
+            syncInventoryFromDb();
+          } else {
+            console.error("Invalid response from submit:", d);
           }
         })
-        .catch(() => {})
+        .catch((error) => {
+          console.error("Failed to submit score:", error);
+          toast.error("Failed to submit score", { description: error.message });
+        })
         .finally(() => setIsSubmittingScore(false));
     }
   }, [flip.state.isComplete, playId, hasSubmitted, account.address]);
 
-  // Unlock on confirmation only
+  // Unlock on confirmation only (for both wagmi and MiniPay transactions)
   useEffect(() => {
-    if (isEntryConfirmed && !flip.state.hasEntryPaid) {
+    if ((isEntryConfirmed || isMinipayConfirmed) && !flip.state.hasEntryPaid) {
       flip.actions.markEntryPaid();
+      // Don't reset minipayTxHash here - we need it to start the game
     }
-  }, [isEntryConfirmed, flip.state.hasEntryPaid, flip.actions]);
+  }, [isEntryConfirmed, isMinipayConfirmed, flip.state.hasEntryPaid, flip.actions]);
 
   // Notify on failure
   useEffect(() => {
@@ -307,6 +355,7 @@ function App() {
             ),
             duration: 5000,
           });
+          syncInventoryFromDb();
         },
         onError: (error) => {
           toast.dismiss(fundingToastId);
@@ -318,7 +367,7 @@ function App() {
         },
       }
     );
-  }, [walletAddress, faucetMutation, faucetEligibility]);
+  }, [walletAddress, faucetMutation, faucetEligibility, syncInventoryFromDb]);
 
   return (
     <main className="min-h-screen">
@@ -471,7 +520,8 @@ function App() {
           </div>
         ) : (
           <div className="flex gap-2">
-            {connectors.length > 0 && (
+            {/* Hide connect button when in MiniPay (auto-connects) */}
+            {!isMiniPay && connectors.length > 0 && (
               <Button
                 onClick={() => connect({ connector: connectors[0] })}
                 size="lg"
@@ -501,14 +551,70 @@ function App() {
                     size="sm"
                     onClick={async () => {
                       try {
+                        if (!account.address) {
+                          toast.error("Wallet not connected");
+                          return;
+                        }
+                        
                         const units = parseUnits("0.01", USDC.decimals);
                         const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [TREASURY_ADDRESS, units] });
-                        sendEntryTransaction({ to: USDC.address, data, value: 0n });
-                      } catch {}
+                        
+                        // For MiniPay, use feeCurrency parameter (cUSD address)
+                        // MiniPay only accepts legacy transactions, not EIP-1559
+                        // According to Minipay docs: https://docs.celo.org/build-on-celo/build-on-minipay/quickstart
+                        if (typeof window !== "undefined" && window.ethereum?.isMiniPay) {
+                          setIsMinipayPending(true);
+                          // Use provider directly for MiniPay with feeCurrency
+                          // MiniPay supports feeCurrency in eth_sendTransaction
+                          const txHash = await window.ethereum.request({
+                            method: "eth_sendTransaction",
+                            params: [{
+                              from: account.address,
+                              to: USDC.address,
+                              data: data,
+                              value: "0x0",
+                              feeCurrency: USDC.address, // Pay fees in cUSD for MiniPay (required)
+                            }],
+                          }) as string;
+                          
+                          // Track MiniPay transaction manually
+                          setMinipayTxHash(txHash);
+                          toast("Transaction submitted", { description: "Waiting for confirmation..." });
+                          // Update inventory immediately after payment request
+                          syncInventoryFromDb();
+                          setIsMinipayPending(false);
+                        } else {
+                          // Standard transaction for other wallets (wagmi handles this)
+                          sendEntryTransaction({ 
+                            to: USDC.address, 
+                            data, 
+                            value: 0n,
+                          });
+                          syncInventoryFromDb();
+                        }
+                      } catch (error) {
+                        setIsMinipayPending(false);
+                        console.error("Payment error:", error);
+                        const errorMessage = error instanceof Error ? error.message : "Transaction failed";
+                        toast.error("Payment failed", { 
+                          description: errorMessage 
+                        });
+                      }
                     }}
-                    disabled={flip.state.hasEntryPaid || account.status !== "connected" || isEntryPending || isEntryConfirming}
+                    disabled={
+                      flip.state.hasEntryPaid ||
+                      account.status !== "connected" ||
+                      isEntryPending ||
+                      isEntryConfirming ||
+                      isMinipayPending ||
+                      isMinipayConfirming
+                    }
                   >
-                    {isEntryPending ? "Paying..." : isEntryConfirming ? "Confirming..." : "Pay & Start"}
+                    {isEntryPending || isMinipayPending || (isMiniPay && minipayTxHash && !isMinipayConfirmed) 
+                      ? "Paying..." 
+                      : isEntryConfirming || isMinipayConfirming 
+                      ? "Confirming..." 
+                      : "Pay & Start"}
                   </Button>
                 </div>
               </div>
@@ -546,7 +652,13 @@ function App() {
             <div className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
               <span>Pairs matched: {flip.state.pairsMatched}/8</span>
               {flip.state.isComplete && <span className="text-green-500 font-medium">Completed!</span>}
-              <Button size="sm" variant="outline" onClick={flip.actions.reset}>New Game</Button>
+              <Button size="sm" variant="outline" onClick={() => {
+                flip.actions.reset();
+                setPlayId(null);
+                setHasSubmitted(false);
+                setMinipayTxHash(null);
+                setPaymentReceiptId(null);
+              }}>New Game</Button>
             </div>
           </div>
 

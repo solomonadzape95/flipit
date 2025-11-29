@@ -3,8 +3,9 @@ import { celo, celoAlfajores } from "viem/chains";
 import { USDC, erc20Abi } from "./usdc";
 
 // Celo Sepolia testnet chain definition
+// Chain ID: 11142220 (from https://docs.celo.org/tooling/overview/network-overview)
 const celoSepolia: Chain = {
-  id: 111557560,
+  id: 11142220,
   name: "Celo Sepolia",
   nativeCurrency: {
     decimals: 18,
@@ -13,13 +14,13 @@ const celoSepolia: Chain = {
   },
   rpcUrls: {
     default: {
-      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://rpc.ankr.com/celo_sepolia"],
+      http: [process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC ?? "https://forno.celo-sepolia.celo-testnet.org"],
     },
   },
   blockExplorers: {
     default: {
-      name: "CeloScan Sepolia",
-      url: "https://sepolia.celoscan.io",
+      name: "Blockscout",
+      url: "https://celo-sepolia.blockscout.com",
     },
   },
   testnet: true,

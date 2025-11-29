@@ -51,6 +51,7 @@ export default function RightTabs(props: {
             onAddToInventory={props.onAddToInventory}
             playId={props.playId}
             userId={props.userId}
+            onSyncInventory={props.onSyncInventory}
           />
         ) : (
           <LeaderboardPanel currentUsername={props.currentUsername} />

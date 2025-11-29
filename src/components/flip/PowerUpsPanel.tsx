@@ -5,6 +5,8 @@ import { useStorePurchases } from "@/hooks/useStorePurchases";
 import { useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 
+import { useEffect } from "react";
+
 export default function PowerUpsPanel(props: {
   isConnected?: boolean;
   onConnect?: () => void;
@@ -16,16 +18,19 @@ export default function PowerUpsPanel(props: {
   onAddToInventory?: (type: "peek" | "autoMatch") => void;
   playId?: string | null;
   userId?: string | null;
+  onSyncInventory?: () => void;
 }) {
   const { buyItem, state } = useStorePurchases();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: state.txHash });
+  useEffect(() => {
+    if (!isSuccess || !state.activePurchase) return;
 
-  if (isSuccess && state.activePurchase) {
+    const activePurchase = state.activePurchase;
     if (props.isInGame) {
-      if (state.activePurchase === "peek") {
+      if (activePurchase === "peek") {
         props.onPeek();
         toast.success("Peek activated", { description: "All cards revealed for 2s (+5s)" });
-      } else if (state.activePurchase === "autoMatch") {
+      } else if (activePurchase === "autoMatch") {
         props.onAutoMatch();
         toast.success("Auto-Match used", { description: "One pair matched instantly (+5s)" });
       }
@@ -33,18 +38,16 @@ export default function PowerUpsPanel(props: {
         fetch("/api/game/buy-powerup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ playId: props.playId, powerupType: state.activePurchase, source: "store" }),
+          body: JSON.stringify({ playId: props.playId, powerupType: activePurchase, source: "store" }),
         }).catch(() => {});
       }
     } else if (props.onAddToInventory) {
-      props.onAddToInventory(state.activePurchase as any);
-      // Persist to user inventory when not in-game
+      props.onAddToInventory(activePurchase as any);
       if (props.userId) {
         const body =
-          state.activePurchase === "peek"
+          activePurchase === "peek"
             ? { userId: props.userId, peekDelta: 1 }
             : { userId: props.userId, autoMatchDelta: 1 };
-        // Retry inventory persistence to be resilient to transient failures
         const bodyJson = JSON.stringify(body);
         let tries = 0;
         const postInv = () =>
@@ -57,10 +60,23 @@ export default function PowerUpsPanel(props: {
           });
         postInv();
       }
-      toast.success("Added to collection", { description: `${state.activePurchase} saved` });
+      toast.success("Added to collection", { description: `${activePurchase} saved` });
     }
+
+    props.onSyncInventory?.();
     state.reset();
-  }
+  }, [
+    isSuccess,
+    state.activePurchase,
+    state.reset,
+    props.isInGame,
+    props.onPeek,
+    props.onAutoMatch,
+    props.playId,
+    props.onAddToInventory,
+    props.userId,
+    props.onSyncInventory,
+  ]);
 
   return (
     <div className="space-y-3">

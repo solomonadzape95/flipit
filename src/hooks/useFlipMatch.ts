@@ -164,7 +164,7 @@ export function useFlipMatch() {
       setBoard((cur) => cur.map((c) => (c.isMatched ? c : { ...c, isRevealed: false })));
       lockRef.current = false;
     }, 2000);
-  }, [firstFlipHappened, isComplete]);
+  }, [firstFlipHappened, isComplete, finishIfDone]);
 
   const useAutoMatch = useCallback(() => {
     if (isComplete) return;
@@ -182,6 +182,7 @@ export function useFlipMatch() {
         }
         return c;
       });
+      finishIfDone(next);
       return next;
     });
     if (firstFlipHappened) setPenaltiesMs((p) => p + 5000);

@@ -1,232 +1,179 @@
 # flipit
 
-A Next.js demo application and memory-flip game built to showcase how to integrate [Base Account Sub Accounts](https://docs.base.org/base-account/improve-ux/sub-accounts) with [wagmi](https://wagmi.sh/) and the Base Account SDK.
+A Next.js 14 + wagmi memory game that runs entirely on the Celo stack (MiniPay friendly) and uses cUSD for entry fees, power‑ups, faucets, and daily on-chain payouts.
 
 ---
 
-## What is this?
+## Overview
 
-`flipit` is a single-player memory card game that uses Base Account Sub Accounts as your in-app wallet. It demo's frictionless, app-embedded wallets with seamless “spend permission” top-ups and lets you experience sub accounts in a real dapp flow:
-
-- **Sign in with Celo** (universal account)
-- **Sub Account auto-created** for this game
-- **Pay to play** (with USDC)
-- **Spend permission** (top up your sub account budget, zero signature)
-- **Onchain high scores** (score auto-submits to API)
-- **Faucet** (get USDC from in-app testnet faucet)
+`flipit` letsa MiniPay and Celo wallet users pay 0.1 cUSD to enter a timed memory flip challenge, purchase in-game power-ups, and climb a daily leaderboard. The app auto-detects MiniPay, keeps balances synced with wagmi/viem, stores gameplay via Prisma/Postgres, exposes a cUSD faucet, and pays the top 3 players from a treasury account once per day through a Vercel cron job.
 
 ---
 
-## Features
+## Gameplay & Flow
 
-- **Memory-flip game**: Pay $1 in USDC to play. Your best time is submitted to the onchain leaderboard.
-- **Embedded Sub Account wallet**: No need to sign every transaction.
-- **Top-up & spend permission**: Approve a budget for repeated spends (demo's auto spend-permission workflow).
-- **USDC Sepolia faucet**: Get testnet tokens to your universal account.
-- **Works on Base Sepolia**: All test transactions.
-
----
-
-## How It Works (At a Glance)
-
-1. **Wallet connects via wagmi baseAccount connector**
-    - On connect, a sub account is automatically created
-    - The app stores both your **universal account** (main wallet) and **sub account** (this game)
-2. **You get a faucet/USDC balance** for the universal account
-3. **To play, pay $1** in USDC — the transaction is sent from the sub account (draws funds from your universal account using spend permission)
-4. **Optional**: Set up spend permission for seamless future spends (no extra signature)
-5. **Play the game**. When finished, your score is submitted via the sub account.
+1. **Connect a wallet** – MiniPay is auto-connected; other wallets can use Injected or WalletConnect.
+2. **Claim test cUSD** – the in-app faucet sends 10 cUSD (configurable) if your balance is low.
+3. **Pay the entry fee** – send 0.1 cUSD to the treasury before the first flip; MiniPay transactions include `feeCurrency` so users stay in stablecoins.
+4. **Play** – the board timer starts on first flip; penalties are added when power-ups are used.
+5. **Use power-ups** – buy “Peek” or “Auto-Match” for 0.1 cUSD each or use inventory you saved earlier.
+6. **Submit automatically** – when all pairs are matched the client posts results to `/api/game/submit`, which records the score and updates the leaderboard.
+7. **Earn payouts** – a scheduled job aggregates the day’s fees, sends 80% back to the top 3 wallets, and clears the daily leaderboard.
 
 ---
 
-## Quickstart
+## Feature Highlights
 
-### Prerequisites
-
-- Node.js 18+ and pnpm (or yarn, npm)
-- **Base Sepolia** wallet address, ideally with [Coinbase Wallet](https://www.coinbase.com/wallet) or [account.base.app](https://account.base.app/)
-- [Optional] [Base Sepolia Faucet](https://sepoliafaucet.com/) for native ETH
-
-### Install & Run
-
-```bash
-pnpm install
-cp .env.local.example .env.local  # (see below)
-pnpm dev
-```
-
-The app runs at [localhost:3000](http://localhost:3000).
+- **MiniPay-ready UX** – detects `window.ethereum.isMiniPay`, auto-connects, and forces legacy tx with `feeCurrency = cUSD`.
+- **Multi-network Celo support** – switch between Celo mainnet, Alfajores, or Celo Sepolia through `NEXT_PUBLIC_CELO_NETWORK`.
+- **cUSD faucet** – `/api/faucet` checks balances before letting a keyed server wallet send 10 cUSD to a user.
+- **Power-up store & inventory** – purchases log in Prisma, can be saved for later, and sync automatically with `/api/users/inventory`.
+- **Daily leaderboard & payouts** – `/api/leaderboard` serves the fastest times; `/api/payouts/daily` is triggered by `vercel.json` cron to distribute funds.
+- **Username & profile handling** – `/api/users/upsert` seeds a record on first connect, players can rename themselves, and usernames are baked into score submissions.
+- **React Query driven UI** – low-latency updates for the leaderboard and store state without manual refreshes.
 
 ---
 
-### Environment Variables
+## Architecture Snapshot
 
-**(Optional, for paymaster/gas sponsorship)**
-
-Create `.env.local`:
-
-```bash
-NEXT_PUBLIC_PAYMASTER_SERVICE_URL=https://api.developer.coinbase.com/rpc/v1/base-sepolia/...
-```
-
-If `NEXT_PUBLIC_PAYMASTER_SERVICE_URL` is set, the app uses a paymaster to sponsor gas for sub account transactions.
-
-Read [FAUCET_SETUP.md](./FAUCET_SETUP.md) for fully automated faucet/token setup.
-
----
-
-## In-App Flow (User Experience)
-
-1. **Sign in with Celo**: Creates a sub account just for this app.
-2. **Fund universal account** if needed—use in-app "Get USDC on Base Sepolia" button (testnet only).
-3. **See Your Balances**:
-    - Universal (main) USDC
-    - Sub account USDC (starts at zero unless funded)
-4. **Set Up Spend Permission**: Approve a spending budget for seamless, signature-less spends for a session.
-5. **Pay $1 to play**: This debits your sub account (if it has allowance/balance) or seamlessly fetches it from universal with spend permission.
-6. **Gameplay**: Flip all cards with matching pairs. Timer/score shown.
-7. **Submit Score**: On game finish, score auto-submitted via an onchain API.
-
----
-
-## Project Structure
+- **UI**: Next.js App Router (`src/app/page.tsx`) with Tailwind UI components in `src/components`.
+- **Wallets**: `src/wagmi.ts` configures wagmi with Injected + WalletConnect connectors against the selected Celo chain.
+- **Blockchain helpers**: viem handles encoding ERC20 transfers, cUSD addresses live in `src/lib/usdc.ts`, shared constants in `src/lib/constants.ts`.
+- **Data layer**: Prisma schema (`prisma/schema.prisma`) stores users, plays, and scores in Postgres/Supabase.
+- **APIs**: REST endpoints under `src/app/api/*` cover faucet, users, game lifecycle, power-up purchases, leaderboard, Farcaster feed proxy, and daily payouts.
+- **Automation**: `vercel.json` wires a midnight UTC cron to `/api/payouts/daily`.
 
 ```
 src/
 ├── app/
 │   ├── api/
-│   │   ├── faucet/         # USDC faucet for dev/testing
-│   │   └── users/          # User API for inventory/score storage
-│   │   └── game/           # Game (start/submit) API
-│   ├── layout.tsx          # App providers/root
-│   └── page.tsx            # Main demo/game page
-├── components/
-│   ├── flip/               # Gameboard, Timer, RightTabs, etc.
-│   ├── ui/                 # Button, Dialog, Sheet, other UI
-│   └── StorePanel.tsx      # Inventory/powerup panel
-├── hooks/                  # Wagmi/data hooks
-├── lib/
-├── wagmi.ts                # ⭐ Wagmi config using sub accounts!
-└── ...
+│   │   ├── faucet               # cUSD faucet (requires FAUCET_PRIVATE_KEY)
+│   │   ├── game/*               # start, mark-start, submit, buy-powerup
+│   │   ├── leaderboard          # fastest times
+│   │   ├── payouts/daily        # cron-triggered payout job
+│   │   ├── posts                # Neynar-powered Farcaster feed (optional)
+│   │   └── users/*              # upsert, get, inventory mutations
+│   ├── leaderboard/page.tsx     # public leaderboard view
+│   └── page.tsx                 # primary MiniPay-focused experience
+├── components/flip              # Board, Timer, Tabs, PowerUps, Leaderboard UI
+├── hooks                        # faucet, flip state, power-up purchases, etc.
+├── lib                          # constants, prisma, faucet helpers, store config
+└── wagmi.ts                     # chain + connector configuration
 ```
 
 ---
 
-## How Sub Accounts Are Used
+## Local Development
 
-### 1. Wagmi Configuration
+### Prerequisites
 
-In [`src/wagmi.ts`](src/wagmi.ts):
+- Node.js 18+
+- pnpm 9+
+- A Postgres database (Supabase works great)
+- A Celo wallet for testing (MiniPay, Valora, MetaMask with Celo RPC, etc.)
 
-```ts
-import { baseAccount } from "wagmi/connectors";
+### Setup
 
-export function getConfig() {
-  return createConfig({
-    chains: [baseSepolia],
-    connectors: [
-      baseAccount({
-        appName: "flipit",
-        subAccounts: {
-          creation: "on-connect",   // auto-create on connect
-          defaultAccount: "sub",    // use sub account for all app txs
-        },
-        paymasterUrls: {
-          [baseSepolia.id]: process.env.NEXT_PUBLIC_PAYMASTER_SERVICE_URL,
-        },
-      }),
-    ],
-    // ...
-  });
-}
-```
+1. Install dependencies:
 
-- On connect, a sub account is created, and all txns use the sub account unless you specify the universal account as `from`.
-- Spend permissions (allowance/budget) are handled under the hood—if sub account lacks balance, funds/top ups are auto-requested.
-- All standard wagmi hooks (`useAccount`, `useSendTransaction`, etc) use the sub account by default.
+   ```bash
+   pnpm install
+   ```
 
-### 2. Access Both Accounts
+2. Create `.env.local` (see the next section for every variable). Example for Celo Sepolia:
 
-In the app (see `src/app/page.tsx`):
+   ```bash
+   DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/db_name"
+   DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/db_name?pgbouncer=true"
 
-```ts
-import { useAccount, useConnections } from "wagmi";
-const account = useAccount(); // sub account
-const conns = useConnections();
-const universalAddress = conns.flatMap((c) => c.accounts)[0]; // main
-```
+   NEXT_PUBLIC_CELO_NETWORK="sepolia"
+   NEXT_PUBLIC_CELO_SEPOLIA_RPC="https://forno.celo-sepolia.celo-testnet.org"
+   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=""
 
-### 3. Sending Transactions
+   FAUCET_PRIVATE_KEY="0xabc123..."      # dev-only hot wallet with test cUSD
+   TREASURY_PRIVATE_KEY="0xdef456..."    # wallet that receives entry fees & pays winners
+   NEXT_NEYNAR_API_KEY=""                # optional Farcaster feed
+   ```
 
-- All major actions (`Pay & Start`, sending funds, buying items, etc) are one-click, using your sub account and spend permission.
-- Approving a spend budget is a *single signature*, after which you can play, make purchases, etc. frictionlessly for the session.
+   > For Supabase, use the “Connection string” (not the pooler) for `DATABASE_URL` and the pooler for `DIRECT_URL`.
 
----
+3. Run migrations & generate the Prisma client:
 
-## Cheatsheet: Code Snippets
+   ```bash
+   pnpm dlx prisma migrate deploy   # or `prisma migrate dev` for local DBs
+   pnpm dlx prisma generate
+   ```
 
-### Get Addresses
+4. Start the dev server:
 
-```tsx
-const { address: subAccount } = useAccount();
-const connections = useConnections();
-const universal = connections.flatMap(a => a.accounts)[0];
-```
+   ```bash
+   pnpm dev
+   ```
 
-### Send Transaction
-
-```tsx
-const { sendTransaction } = useSendTransaction();
-sendTransaction({
-  to: USDC.address,
-  data: <calldata>,
-})
-```
-
-### Top Up Permission
-
-```tsx
-const { requestBudget } = useSpendPermission();
-requestBudget(20) // approves budget = $20
-```
+   Visit [http://localhost:3000](http://localhost:3000) and open the page inside the MiniPay browser or any Celo-compatible wallet.
 
 ---
 
-## Testnet Setup and USDC
+## Environment Variables
 
-- All balances/interactions are on **Base Sepolia** (testnet). You need USDC and ETH for gas. Use the in-app faucet or [Base Sepolia Faucet](https://sepoliafaucet.com/).
-- Faucet: The app provides a button to mint testnet USDC directly.
+| Name | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | ✅ | Postgres connection string used by Prisma. |
+| `DIRECT_URL` | ⚠️ | Optional Postgres direct connection (recommended for Supabase/introspection). |
+| `NEXT_PUBLIC_CELO_NETWORK` | ✅ | `mainnet`, `alfajores`, or `sepolia` (default) to pick the chain + cUSD contract. |
+| `NEXT_PUBLIC_CELO_SEPOLIA_RPC` | ⚠️ | Custom RPC endpoint for Celo Sepolia; defaults to Forno if omitted. |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | ⚠️ | Enables WalletConnect; leave blank to disable QR modal. |
+| `FAUCET_PRIVATE_KEY` | ✅ for faucet | Hot wallet that sends cUSD in `/api/faucet`. Should hold test funds only. |
+| `TREASURY_PRIVATE_KEY` | ✅ for payouts | Wallet that receives entry fees and pays winners inside `/api/payouts/daily`. |
+| `NEXT_NEYNAR_API_KEY` | ⚠️ | Needed if you surface the Farcaster feed proxy (`/api/posts`). |
 
----
-
-## Resources
-
-- **Base Account Sub Accounts**: [docs.base.org](https://docs.base.org/base-account/improve-ux/sub-accounts)
-- **Live Demo**: [sub-accounts-fc.vercel.app](https://sub-accounts-fc.vercel.app) (official sample)
-- **wagmi Docs**: [wagmi.sh](https://wagmi.sh)
-- **Base Dashboard**: [account.base.app](https://account.base.app)
-- **Spend Permissions**: [Base Account Spend Permissions](https://docs.base.org/base-account/improve-ux/spend-permissions)
-- **Paymaster Docs**: [Coinbase Paymaster](https://docs.cdp.coinbase.com/paymaster/introduction/welcome)
-
----
-
-## Best Practices
-
-- **Sponsor gas fees** for the best UX (`NEXT_PUBLIC_PAYMASTER_SERVICE_URL`)
-- **Let users see both addresses** (universal & sub) for transparency
-- **Prompt for budgets not signatures**: Top up with a $ amount—future transactions use allowance.
-- **Test UX on mobile** (passkeys, device switching)
+> Production deployments should keep `FAUCET_PRIVATE_KEY` and `TREASURY_PRIVATE_KEY` in secure secrets managers. Never commit these values.
 
 ---
 
-## Support
+## Wallet & Network Behavior
 
-- [Base Account Documentation](https://docs.base.org/base-account)
-- [Base Discord](https://discord.gg/buildonbase)
-- Open an issue in this repo
+- MiniPay is detected via `window.ethereum.isMiniPay`; the app auto-connects and forces cUSD-fee legacy transactions.
+- Injected wallets (MetaMask, Valora browser) require the user to click “Connect”.
+- WalletConnect works when `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is provided; kiosk QR codes are great for mobile testing.
+- Change `NEXT_PUBLIC_CELO_NETWORK` to `mainnet` or `alfajores` to target production networks. cUSD contract addresses are picked automatically (`src/lib/usdc.ts`).
+
+---
+
+## Daily Payouts
+
+- `vercel.json` schedules `/api/payouts/daily` for midnight UTC (`0 0 * * *`).
+- The handler counts plays, calculates the pool (`ENTRY_FEE_CUSD * plays * PAYOUT_POOL_PERCENT`), sends ERC20 transfers via the treasury wallet, and wipes the day’s scores/plays.
+- Trigger it manually during development with:
+
+  ```bash
+  curl -X POST http://localhost:3000/api/payouts/daily
+  ```
+
+  Make sure `TREASURY_PRIVATE_KEY` has enough cUSD on your chosen network.
+
+---
+
+## Useful Scripts
+
+- `pnpm dev` – run Next.js locally.
+- `pnpm build` – generate Prisma client then build Next.js for production.
+- `pnpm start` – start the compiled app.
+- `pnpm lint` – run Next.js lint rules.
+- `pnpm apply-cascade` – helper to re-apply the username cascade migration script.
+
+---
+
+## Additional Docs
+
+- `FAUCET_SETUP.md` – wiring the faucet wallet and eligibility rules.
+- `FEE_AND_PAYOUT_SYSTEM.md` – deep dive into entry-fee math and prize distribution.
+- `SUPABASE_SETUP.md` – provisioning a hosted Postgres database.
+- `USERNAME_CASCADE_SETUP.md`, `MIGRATION_GUIDE.md`, `BUG_FIXES.md`, `FIXES_APPLIED.md` – historical context and troubleshooting notes.
 
 ---
 
 ## License
 
 MIT
+

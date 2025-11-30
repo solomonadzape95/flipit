@@ -92,7 +92,7 @@ export default function PowerUpsPanel(props: {
           <div className="text-sm text-muted-foreground">Reveal all cards for 2s (+5s penalty)</div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-sm">$0.50</div>
+          <div className="text-sm">0.10 cUSD</div>
           <Button size="sm" disabled={!props.isConnected || state.isPending || isConfirming} onClick={() => buyItem("peek" as any)}>
             {state.isPending && state.activePurchase === "peek" ? "Buying..." : isConfirming && state.activePurchase === "peek" ? "Confirming..." : "Buy"}
           </Button>
@@ -105,7 +105,7 @@ export default function PowerUpsPanel(props: {
           <div className="text-sm text-muted-foreground">Instants match one pair (+5s penalty)</div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-sm">$0.50</div>
+          <div className="text-sm">0.10 cUSD</div>
           <Button size="sm" disabled={!props.isConnected || state.isPending || isConfirming} onClick={() => buyItem("autoMatch" as any)}>
             {state.isPending && state.activePurchase === "autoMatch" ? "Buying..." : isConfirming && state.activePurchase === "autoMatch" ? "Confirming..." : "Buy"}
           </Button>

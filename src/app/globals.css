@@ -374,3 +374,69 @@
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
 }
+
+/* Toast styling (Sonner) */
+.toaster {
+  font-family: var(--font-mono);
+}
+
+.toaster .sonner-toast {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--card-foreground);
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+
+.toaster .sonner-toast[data-type="success"] {
+  border-color: var(--success);
+  color: var(--foreground);
+}
+
+.toaster .sonner-toast[data-type="error"] {
+  border-color: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+.toaster .sonner-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--popover-foreground);
+}
+
+.toaster .sonner-description {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.toaster .sonner-toast-button {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.toaster .sonner-toast-button:hover {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+.toaster .sonner-close-button {
+  border-radius: 0;
+  color: var(--muted-foreground);
+}
+
+.toaster .sonner-close-button:hover {
+  color: var(--foreground);
+}
+
+.toaster .sonner-progress-bar {
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+}

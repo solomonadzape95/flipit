@@ -16,7 +16,7 @@ import RightTabs from "@/components/flip/RightTabs";
 import { useFlipMatch } from "@/hooks/useFlipMatch";
 import { useStorePurchases } from "@/hooks/useStorePurchases";
 import { USDC, erc20Abi } from "@/lib/usdc";
-import { TREASURY_ADDRESS } from "@/lib/constants";
+import { TREASURY_ADDRESS, ENTRY_FEE_CUSD } from "@/lib/constants";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { parseUnits, isAddress, encodeFunctionData } from "viem";
 import { toast } from "sonner";
@@ -31,6 +31,8 @@ function App() {
   const account = useAccount();
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
+  const entryFeeValue = ENTRY_FEE_CUSD.toString();
+  const entryFeeDisplay = ENTRY_FEE_CUSD.toFixed(2);
   
   // Detect if running in MiniPay
   const [isMiniPay, setIsMiniPay] = useState(false);
@@ -544,7 +546,7 @@ function App() {
               <div className="w-full max-w-[720px] mb-3">
                 <div className="border rounded-md p-3 flex items-center justify-between bg-card/70">
                   <div>
-                    <div className="text-sm font-medium">Pay 0.01 cUSD to play</div>
+                    <div className="text-sm font-medium">Pay {entryFeeDisplay} cUSD to play</div>
                     <div className="text-xs text-muted-foreground">Required before your first flip.</div>
                   </div>
                   <Button
@@ -556,7 +558,7 @@ function App() {
                           return;
                         }
                         
-                        const units = parseUnits("0.01", USDC.decimals);
+                        const units = parseUnits(entryFeeValue, USDC.decimals);
                         const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [TREASURY_ADDRESS, units] });
                         
                         // For MiniPay, use feeCurrency parameter (cUSD address)
